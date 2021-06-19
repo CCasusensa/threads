@@ -1,11 +1,22 @@
 Threads = {}
-Threads_Tasks = {}
-Threads_Tasks_Custom = {}
+Threads_Alive = {}
+
+Threads_Timers = {}
+Threads_Functions = {}
 Threads_Once = {}
+Threads_ActionTables = {}
+
+
+Threads_Timers_Custom = {}
+Threads_Functions_Custom = {}
 Threads_Once_Custom = {}
-Threads_Kill = {}
+Threads_ActionTables_Custom = {}
+
 debuglog = false
 busyspin = true
+
+local function IsActionTableCreated(timer) return Threads_ActionTables[timer]  end 
+
 
 Threads_Total = 0
 
@@ -19,41 +30,45 @@ local CreateThread = function(...)
 end 
 
 Threads.loop = function(func,_timer, _name)
+    if Threads_Once[_name] then return end 
 	if debuglog and not _timer then 
 		print("[BAD Hobbits]Some Threads.loop timer is nil on "..GetCurrentResourceName())
 	end 
 	
     local name = _name or 'default'
-    if not Threads_Tasks[name] then Threads_Tasks[name] = {} end -- 新建一個名稱表 'default'
-    
     local timer = _timer or 0
-    local actiontable = Threads_Tasks[name][timer] or nil 
+
+    local IsThreadCreated = IsActionTableCreated(timer) --Threads_ActionTables[timer] Exist
         
-    local nametable = {}
-	if actiontable then  
-        table.insert(actiontable,func)  -- 如果default此毫秒已存在 則添加到循環流程中
-        table.insert(nametable,name)
+    
+	if IsThreadCreated then  
+        if Threads_Functions[name] then 
+            print('[Warning]Threads'..name..' is doubly and replaced')  
+            
+        end 
+        Threads_Alive[name] = true 
+        Threads_Functions[name] = func
+        Threads_Timers[name] = timer 
+        
+        table.insert(Threads_ActionTables[timer],name ) -- 如果default此毫秒已存在 則添加到循環流程中
     else                                -- 否則新建一個default的毫秒表 以及新建一個循環線程
+		if Threads_Functions[name] then 
+            print('[Warning]Threads'..name..' is doubly and replaced')  
+            
+        end 
+        Threads_Alive[name] = true 
+        Threads_Functions[name] = func
+        Threads_Timers[name] = timer 
         
-		Threads_Tasks[name][timer] = {}	
-		actiontable = Threads_Tasks[name][timer]
-        nametable = {}
-		table.insert(actiontable,func)
-        table.insert(nametable,name)
+        Threads_ActionTables[timer] = {}	
+        
+        
+		local actiontable = Threads_ActionTables[timer] 
+		table.insert(Threads_ActionTables[timer] , name)
+     
         
 		CreateThread(function() 
 			while true do
-                if Threads_Kill[name] and Threads_Kill[name][timer] then 
-                    Threads_Kill[name][timer] = nil 
-                    if Threads_Once[name] and Threads_Once[name][timer] then 
-                        Threads_Once[name][timer] = nil
-                       
-                    end 
-                    if Threads_Tasks[name] and Threads_Tasks[name][timer] then 
-                        Threads_Tasks[name][timer] = nil
-                    end 
-                    break  
-                end 
                 local loadWait = false
                 local _Wait = Wait
                 local Wait = function(ms)
@@ -65,72 +80,21 @@ Threads.loop = function(func,_timer, _name)
                 
                     Wait(0)
                 end 
+                
+                if debuglog then print("Timer:"..timer,"Exist action threads total:"..#actiontable) end
+                if #actiontable == 0 then 
+                    return 
+                end 
 				for i=1,#actiontable do 
-                    actiontable[i](nametable[i])
-
+                    if Threads_Alive[actiontable[i]] and Threads_Functions[actiontable[i]] and Threads_Timers[actiontable[i]] == timer then 
+                        Threads_Functions[actiontable[i]]()
+                    else 
+                        table.remove(Threads_ActionTables[timer] ,i);
+                    end 
 				end 
                 
                 
             end 
-            return 
-		end)
-	end 
-end
-
-Threads.loop_custom = function(func,_timer, _name)
-	if debuglog and not _timer then 
-		print("[BAD Hobbits]Some Threads.loop timer is nil on "..GetCurrentResourceName())
-	end 
-	
-    local name = _name or 'default'
-    if not Threads_Tasks_Custom[name] then Threads_Tasks_Custom[name] = {} end -- 新建一個名稱表 'default'
-    
-    local timer = _timer or 0
-    local actiontable = Threads_Tasks_Custom[name][timer] or nil 
-    local nametable = {}
- 
-	if actiontable then  
-        table.insert(actiontable,func)  -- 如果default此毫秒已存在 則添加到循環流程中
-        table.insert(nametable,name)
-    else                                -- 否則新建一個default的毫秒表 以及新建一個循環線程
-        
-		Threads_Tasks_Custom[name][timer] = {}	
-		actiontable = Threads_Tasks_Custom[name][timer]
-        nametable = {}
-		table.insert(actiontable,func)
-        table.insert(nametable,name)
-        
-		CreateThread(function() 
-			while true do
-                if Threads_Kill[name] and Threads_Kill[name][timer] then 
-                    Threads_Kill[name][timer] = nil 
-                    if Threads_Once_Custom[name] and Threads_Once_Custom[name][timer] then 
-                        Threads_Once_Custom[name][timer] = nil
-                       
-                    end 
-                    if Threads_Tasks[name] and Threads_Tasks[name][timer] then 
-                        Threads_Tasks[name][timer] = nil
-                    end 
-                    break 
-                end 
-                local loadWait = false
-                local _Wait = Wait
-                local Wait = function(ms)
-                    loadWait = true 
-                    return _Wait(ms)
-                end 
-                if not loadWait then 
-                
-                    Wait(0)
-                end 
-                if actiontable or #actiontable >0 then 
-                    for i=1,#actiontable do 
-                        actiontable[i](nametable[i])
-                        
-                    end 
-                end 
-                
-			end 
             return 
 		end)
 	end 
@@ -175,102 +139,133 @@ Threads.CreateLoopOnce = function(...)
         timer = 0
         func = tbl[1]
     end 
-
-    if not Threads_Once[name] then Threads_Once[name] = {} end 
-    if not Threads_Once[name][timer] then 
-        Threads_Once[name][timer] = true
+    if not Threads_Once[name] then 
         if debuglog then print('threads:CreateLoopOnce:CreateThread:'..timer, name) end
         Threads.loop(func,timer,name)
+        Threads_Once[name] = true 
     end 
 end
 
-Threads.KillLoop = function(...) 
 
+Threads.loop_custom = function(func,_timer, _name)
+    if Threads_Once[_name] then return end 
+	if debuglog and not _timer then 
+		print("[BAD Hobbits]Some Threads.loop timer is nil on "..GetCurrentResourceName())
+	end 
+	
+    local name = _name or 'default'
+    local timer = _timer or 0
+
+    local IsThreadCreated = IsActionTableCreated(timer) --Threads_ActionTables_Custom[timer] Exist
+        
+    
+	if IsThreadCreated then  
+        if Threads_Functions_Custom[name] then 
+            print('[Warning]Threads'..name..' is doubly and replaced')  
+            
+        end 
+        Threads_Alive[name] = true 
+        Threads_Functions_Custom[name] = func
+        Threads_Timers_Custom[name] = timer 
+        
+        table.insert(Threads_ActionTables_Custom[timer],name ) -- 如果default此毫秒已存在 則添加到循環流程中
+    else                                -- 否則新建一個default的毫秒表 以及新建一個循環線程
+		if Threads_Functions_Custom[name] then 
+            print('[Warning]Threads'..name..' is doubly and replaced')  
+            
+        end 
+        Threads_Alive[name] = true 
+        Threads_Functions_Custom[name] = func
+        Threads_Timers_Custom[name] = timer 
+        Threads_ActionTables_Custom[timer] = {}	
+        
+        
+		local actiontable = Threads_ActionTables_Custom[timer] 
+		table.insert(Threads_ActionTables_Custom[timer] , name)
+     
+        
+		CreateThread(function() 
+			while true do
+                local loadWait = false
+                local _Wait = Wait
+                local Wait = function(ms)
+                    loadWait = true 
+                    return _Wait(ms)
+                end 
+                if timer >= 0 then Wait(timer) end -- timer -1 -2 -3... is for Custom Wait but want to group all -1 -2 -3 ... loops together
+                if not loadWait then 
+                
+                    Wait(0)
+                end 
+                
+                if debuglog then print("Timer:"..timer,"Exist action threads total:"..#actiontable) end
+                if #actiontable == 0 then 
+                    return 
+                end 
+				for i=1,#actiontable do 
+                    if Threads_Alive[actiontable[i]] and Threads_Functions_Custom[actiontable[i]] and Threads_Timers_Custom[actiontable[i]] == timer then 
+                        Threads_Functions_Custom[actiontable[i]]()
+                    else 
+                        table.remove(Threads_ActionTables_Custom[timer] ,i);
+                    end 
+				end 
+                
+                
+            end 
+            return 
+		end)
+	end 
+end
+
+Threads.CreateLoop = function(...) 
     local tbl = {...}
     local length = #tbl
-    local timer,name
-    if  length == 2 then 
+    local func,timer,name
+    if length == 3 then 
         name = tbl[1]
         timer = tbl[2]
+        func = tbl[3]
+    elseif  length == 2 then 
+        name = GetCurrentResourceName()
+        timer = tbl[1]
+        func = tbl[2]
     elseif  length == 1 then 
-        name = tbl[1]
+        name = GetCurrentResourceName()
         timer = 0
+        func = tbl[1]
     end 
-    if not Threads_Kill[name] then Threads_Kill[name] = {} end 
-    for i,v in pairs(Threads_Tasks[name]) do 
-        if not Threads_Kill[name][i] then Threads_Kill[name][i] = true end 
-        if debuglog then print('threads:KillLoop:'..timer, name) end
-    end 
+    if debuglog then print('threads:CreateLoop:CreateThread:'..timer, name) end
+    Threads.loop(func,timer,name)
 end
 
-Threads.KillLoopByTimer = function(...) 
 
+Threads.CreateLoopOnce = function(...) 
     local tbl = {...}
     local length = #tbl
-    local timer,name
-    if  length == 2 then 
+    local func,timer,name
+    if length == 3 then 
         name = tbl[1]
         timer = tbl[2]
+        func = tbl[3]
+    elseif  length == 2 then 
+        name = GetCurrentResourceName()
+        timer = tbl[1]
+        func = tbl[2]
     elseif  length == 1 then 
-        name = tbl[1]
+        name = GetCurrentResourceName()
         timer = 0
+        func = tbl[1]
     end 
-    if not Threads_Kill[name] then Threads_Kill[name] = {} end 
-    if not Threads_Kill[name][timer] then 
-        Threads_Kill[name][timer] = true
-         if debuglog then print('threads:KillLoopByTimer:'..timer, name) end
+    if not Threads_Once[name] then 
+        if debuglog then print('threads:CreateLoopOnce:CreateThread:'..timer, name) end
+        Threads.loop(func,timer,name)
+        Threads_Once[name] = true 
     end 
 end
 
-Threads.CreateLoopCustom = function(...) 
-   
-        local tbl = {...}
-        local length = #tbl
-        local func,timer,name
-        if length == 3 then 
-            name = tbl[1]
-            timer = tbl[2]
-            func = tbl[3]
-        elseif  length == 2 then 
-            name = GetCurrentResourceName()
-            timer = tbl[1]
-            func = tbl[2]
-        elseif  length == 1 then 
-            name = GetCurrentResourceName()
-            timer = 0
-            func = tbl[1]
-        end 
-        if debuglog then print('threads:CreateLoopCustom:CreateThread:'..timer, name) end
-        Threads.loop_custom (func,timer,name)
-
-end
-
-Threads.CreateLoopCustomOnce = function(...) 
-   
-        local tbl = {...}
-        local length = #tbl
-        local func,timer,name
-        if length == 3 then 
-            name = tbl[1]
-            timer = tbl[2]
-            func = tbl[3]
-        elseif  length == 2 then 
-            name = GetCurrentResourceName()
-            timer = tbl[1]
-            func = tbl[2]
-        elseif  length == 1 then 
-            name = GetCurrentResourceName()
-            timer = 0
-            func = tbl[1]
-        end 
-        if not Threads_Once_Custom[name] then Threads_Once_Custom[name] = {} end 
-        if not Threads_Once_Custom[name][timer] then 
-            Threads_Once_Custom[name][timer] = true
-            if debuglog then print('threads:CreateLoopCustomOnce:CreateThread:'..timer, name) end
-            Threads.loop_custom (func,timer,name)
-        end 
-
-end
+Threads.KillLoop = function(name)
+    Threads_Alive[name] = false 
+end 
 
 Threads.CreateLoad = function(thing,loadfunc,checkfunc,cb)
     if debuglog then print('threads:CreateLoad:'..thing) end
@@ -316,8 +311,35 @@ Threads.CreateLoad = function(thing,loadfunc,checkfunc,cb)
         cb(nowcb)
     end 
 end
-
-
+--[=[
+CreateThread(function()
+    
+    Threads.CreateLoopOnce("test",1500,function()
+        print(123)
+    end)
+     Threads.CreateLoopOnce("test",1500,function()
+        print(999)
+    end)
+    Threads.CreateLoopOnce("test",999,function()
+        print(999)
+    end)
+    Threads.CreateLoop("test2",1500,function()
+        print(234)
+        Threads.CreateLoop("test2",5000,function()
+            print(155)
+            Threads.KillLoop('test')
+        end)
+    end)
+    
+     Threads.CreateLoopOnce("test3",999,function()
+        print(123123123)
+    end)
+    Threads.CreateLoop("test3",555,function()
+        print(5555555)
+    end)
+    
+end)
+--]=]
 --debug 
 if debuglog then 
 local thisname = "threads"
