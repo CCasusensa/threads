@@ -15,7 +15,7 @@ Threads_ActionTables_Custom = {}
 debuglog = false
 busyspin = true
 
-local function IsActionTableCreated(timer) return Threads_ActionTables[timer]  end 
+
 
 
 Threads_Total = 0
@@ -28,7 +28,7 @@ local CreateThread = function(...)
     end 
     return _CreateThread(...)
 end 
-
+local function IsActionTableCreated(timer) return Threads_ActionTables[timer]  end 
 Threads.loop = function(func,_timer, _name)
     if Threads_Once[_name] then return end 
 	if debuglog and not _timer then 
@@ -146,7 +146,7 @@ Threads.CreateLoopOnce = function(...)
     end 
 end
 
-
+local function IsActionTableCreated_Custom(timer) return Threads_ActionTables_Custom[timer]  end 
 Threads.loop_custom = function(func,_timer, _name)
     if Threads_Once[_name] then return end 
 	if debuglog and not _timer then 
@@ -156,7 +156,7 @@ Threads.loop_custom = function(func,_timer, _name)
     local name = _name or 'default'
     local timer = _timer or 0
 
-    local IsThreadCreated = IsActionTableCreated(timer) --Threads_ActionTables_Custom[timer] Exist
+    local IsThreadCreated = IsActionTableCreated_Custom(timer) --Threads_ActionTables_Custom[timer] Exist
         
     
 	if IsThreadCreated then  
